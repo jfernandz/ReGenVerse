@@ -1,6 +1,7 @@
 .gradle/
 build/
 run/
+bin/
 
 # IntelliJ
 .idea/
