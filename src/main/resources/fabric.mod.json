@@ -10,6 +10,9 @@
   "entrypoints": {
     "main": [
       "com.regenverse.ReGenVerse"
+    ],
+    "client": [
+      "com.regenverse.client.ReGenVerseClient"
     ]
   },
   "depends": {
