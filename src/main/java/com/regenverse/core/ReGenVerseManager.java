@@ -6,6 +6,7 @@ import com.regenverse.state.ReGenVerseState;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.core.BlockPos;
+import net.minecraft.world.level.GameRules;
 import net.minecraft.world.level.storage.LevelResource;
 
 import java.nio.file.Path;
@@ -76,14 +77,16 @@ public final class ReGenVerseManager {
 
         ServerLevel overworld = server.overworld();
         BlockPos spawn = overworld.getSharedSpawnPos();
+        int protectedChunkRadius = resolveProtectedChunkRadius(overworld);
 
         return "enabled=" + config.enabled
             + ", dryRun=" + config.dryRun
             + ", epoch=" + state.epoch
             + ", activeSeed=" + state.activeSeed
             + ", nextCycleUnix=" + state.nextCycleEpochSeconds
-            + ", spawnZone=[x,z +-" + config.protectedRadiusBlocks + ", y "
-            + config.protectedMinY + ".." + config.protectedMaxY + "] around "
+            + ", protectSpawnChunks=" + config.protectSpawnChunks
+            + ", protectedChunkRadius=" + protectedChunkRadius
+            + ", spawnZoneChunks=[x,z +-" + protectedChunkRadius + "] around "
             + "(" + spawn.getX() + "," + spawn.getY() + "," + spawn.getZ() + ")";
     }
 
@@ -108,5 +111,17 @@ public final class ReGenVerseManager {
         // 1) Mark all chunks outside protected spawn zone as stale for the new epoch.
         // 2) On chunk load, if stale and currently unloaded by players, replace data and force re-generation.
         // 3) Keep protected zone chunk data untouched.
+    }
+
+    private static int resolveProtectedChunkRadius(ServerLevel overworld) {
+        if (!config.protectSpawnChunks) {
+            return Math.max(0, config.protectedChunkRadiusOverride);
+        }
+
+        if (config.protectedChunkRadiusOverride >= 0) {
+            return config.protectedChunkRadiusOverride;
+        }
+
+        return Math.max(0, overworld.getGameRules().getInt(GameRules.RULE_SPAWN_CHUNK_RADIUS));
     }
 }

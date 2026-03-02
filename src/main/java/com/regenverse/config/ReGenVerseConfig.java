@@ -13,9 +13,8 @@ public final class ReGenVerseConfig {
 
     public boolean enabled = true;
     public long cycleIntervalMinutes = 240;
-    public int protectedRadiusBlocks = 256;
-    public int protectedMinY = -64;
-    public int protectedMaxY = 320;
+    public boolean protectSpawnChunks = true;
+    public int protectedChunkRadiusOverride = -1;
     public boolean dryRun = true;
 
     public static ReGenVerseConfig loadOrCreate(Path configPath) {

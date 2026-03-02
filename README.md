@@ -27,12 +27,14 @@ This blueprint already gives you:
 {
   "enabled": true,
   "cycleIntervalMinutes": 240,
-  "protectedRadiusBlocks": 256,
-  "protectedMinY": -64,
-  "protectedMaxY": 320,
+  "protectSpawnChunks": true,
+  "protectedChunkRadiusOverride": -1,
   "dryRun": true
 }
 ```
+
+When `protectSpawnChunks=true`, protection uses the overworld `spawnChunkRadius` gamerule.
+Set `protectedChunkRadiusOverride` to a non-negative number to force a custom chunk radius.
 
 `dryRun=true` means cycles are logged and persisted but no chunk data is touched yet.
 

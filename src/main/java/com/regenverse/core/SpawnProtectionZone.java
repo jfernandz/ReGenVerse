@@ -7,18 +7,15 @@ public final class SpawnProtectionZone {
     private SpawnProtectionZone() {
     }
 
-    public static boolean isProtected(ServerLevel world, BlockPos pos, int radius, int minY, int maxY) {
+    public static boolean isProtected(ServerLevel world, BlockPos pos, int chunkRadius) {
         BlockPos spawn = world.getSharedSpawnPos();
 
-        int minX = spawn.getX() - radius;
-        int maxX = spawn.getX() + radius;
-        int minZ = spawn.getZ() - radius;
-        int maxZ = spawn.getZ() + radius;
+        int spawnChunkX = spawn.getX() >> 4;
+        int spawnChunkZ = spawn.getZ() >> 4;
+        int chunkX = pos.getX() >> 4;
+        int chunkZ = pos.getZ() >> 4;
 
-        boolean insideXZ = pos.getX() >= minX && pos.getX() <= maxX
-            && pos.getZ() >= minZ && pos.getZ() <= maxZ;
-        boolean insideY = pos.getY() >= minY && pos.getY() <= maxY;
-
-        return insideXZ && insideY;
+        return Math.abs(chunkX - spawnChunkX) <= chunkRadius
+            && Math.abs(chunkZ - spawnChunkZ) <= chunkRadius;
     }
 }
