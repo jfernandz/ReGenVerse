@@ -26,6 +26,16 @@ public final class ReGenVerseCommands {
                         ctx.getSource().sendSuccess(() -> Component.literal("ReGenVerse config reloaded."), true);
                         return Command.SINGLE_SUCCESS;
                     }))
+                .then(Commands.literal("here")
+                    .executes(ctx -> {
+                        if (ctx.getSource().getPlayer() == null) {
+                            ctx.getSource().sendFailure(Component.literal("This command can only be used by a player."));
+                            return 0;
+                        }
+                        String chunkStatus = ReGenVerseManager.playerChunkStatus(ctx.getSource().getPlayer());
+                        ctx.getSource().sendSuccess(() -> Component.literal(chunkStatus), false);
+                        return Command.SINGLE_SUCCESS;
+                    }))
                 .then(Commands.literal("cycle")
                     .executes(ctx -> {
                         ReGenVerseManager.forceCycle(ctx.getSource().getServer());

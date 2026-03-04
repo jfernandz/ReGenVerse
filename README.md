@@ -18,6 +18,7 @@ This blueprint already gives you:
 ## Current Commands
 - `/regenverse status` -> shows runtime config/state.
 - `/regenverse reload` -> reloads `config/regenverse-server.json`.
+- `/regenverse here` -> shows server-side chunk status at your current position.
 - `/regenverse cycle` -> triggers a cycle immediately.
 
 ## Config File
@@ -35,8 +36,23 @@ This blueprint already gives you:
 
 When `protectSpawnChunks=true`, protection uses the overworld `spawnChunkRadius` gamerule.
 Set `protectedChunkRadiusOverride` to a non-negative number to force a custom chunk radius.
+With default gamerule `spawnChunkRadius=2`, ReGenVerse protects a `3x3` chunk area (9 chunks).
 
 `dryRun=true` means cycles are logged and persisted but no chunk data is touched yet.
+
+When `dryRun=false`, ReGenVerse now performs a first regeneration phase:
+- teleports online players to overworld spawn
+- temporarily suspends overworld player chunk tickets
+- temporarily sets server `viewDistance` and `simulationDistance` to `2`
+- temporarily sets gamerule `spawnChunkRadius` to `0`
+- unloads non-protected loaded overworld chunks
+- flushes world save data
+- scans overworld chunk entries
+- preserves protected spawn chunks
+- deletes unprotected chunks through Minecraft's chunk storage worker
+- restores player chunk tickets, server distances, and original `spawnChunkRadius`
+
+Those removed chunks regenerate the next time they are loaded.
 
 ## Runtime State File
 `<world>/data/regenverse-state.json`
@@ -47,19 +63,14 @@ Stores:
 - `nextCycleEpochSeconds`
 
 ## Implementation Blueprint (Next Phases)
-1. Chunk Index + Epoch Tagging
-- Persist per-chunk epoch metadata (dimension + chunk pos -> last generated epoch).
-- Keep spawn-zone chunks permanently pinned to epoch 0.
+1. Epoch Seed Wiring
+- Route worldgen calls to use per-epoch seed instead of only the original world seed.
 
-2. Regeneration Engine
-- For chunks outside protection zone: detect stale chunks and rebuild terrain with cycle seed.
-- Never mutate currently occupied chunks (player-safe queue).
-
-3. Data Preservation Rules
+2. Data Preservation Rules
 - Decide what survives resets (structures, claims, inventories, entities, block entities).
 - Add rule-based whitelist/blacklist policies.
 
-4. Safety + Operations
+3. Safety + Operations
 - Add pre-cycle warning broadcasts and grace period.
 - Add backups and rollback hooks.
 - Add rate limits to avoid TPS spikes.
