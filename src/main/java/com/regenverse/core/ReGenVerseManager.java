@@ -2,13 +2,16 @@ package com.regenverse.core;
 
 import com.regenverse.ReGenVerse;
 import com.regenverse.config.ReGenVerseConfig;
+import com.regenverse.network.CycleStatePayload;
 import com.regenverse.state.ReGenVerseState;
+import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ChunkHolder;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.players.PlayerList;
 import net.minecraft.core.BlockPos;
+import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.level.GameRules;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.storage.LevelResource;
@@ -31,6 +34,7 @@ public final class ReGenVerseManager {
     private static ReGenVerseState state;
     private static Path statePath;
     private static int tickAccumulator;
+    private static boolean cycleInProgress;
 
     private ReGenVerseManager() {
     }
@@ -80,6 +84,12 @@ public final class ReGenVerseManager {
         triggerCycle(server, true);
     }
 
+    public static void syncCycleState(ServerPlayer player) {
+        if (ServerPlayNetworking.canSend(player, CycleStatePayload.TYPE)) {
+            ServerPlayNetworking.send(player, new CycleStatePayload(cycleInProgress));
+        }
+    }
+
     public static String statusLine(MinecraftServer server) {
         if (config == null || state == null) {
             return "ReGenVerse is not initialized yet.";
@@ -93,6 +103,7 @@ public final class ReGenVerseManager {
 
         return "enabled=" + config.enabled
             + ", dryRun=" + config.dryRun
+            + ", cycleInProgress=" + cycleInProgress
             + ", epoch=" + state.epoch
             + ", activeSeed=" + state.activeSeed
             + ", nextCycleUnix=" + state.nextCycleEpochSeconds
@@ -120,79 +131,103 @@ public final class ReGenVerseManager {
             return;
         }
 
-        evacuatePlayersToSpawn(server, overworld, nextEpoch);
-        PlayerList playerList = server.getPlayerList();
-        int originalViewDistance = playerList.getViewDistance();
-        int originalSimulationDistance = playerList.getSimulationDistance();
-        boolean distancesAdjusted = false;
-        if (server.getPlayerCount() > 0) {
-            if (originalViewDistance != CYCLE_VIEW_DISTANCE) {
-                playerList.setViewDistance(CYCLE_VIEW_DISTANCE);
-                distancesAdjusted = true;
-            }
-            if (originalSimulationDistance != CYCLE_SIMULATION_DISTANCE) {
-                playerList.setSimulationDistance(CYCLE_SIMULATION_DISTANCE);
-                distancesAdjusted = true;
-            }
-            if (distancesAdjusted) {
-                ReGenVerse.LOGGER.info(
-                    "ReGenVerse cycle {} applied temporary distances: view {}->{} simulation {}->{}.",
-                    nextEpoch,
-                    originalViewDistance,
-                    playerList.getViewDistance(),
-                    originalSimulationDistance,
-                    playerList.getSimulationDistance()
-                );
-            }
+        if (cycleInProgress) {
+            ReGenVerse.LOGGER.warn("Skipped ReGenVerse cycle trigger because another cycle is already in progress.");
+            return;
         }
 
-        List<ServerPlayer> ticketSuspendedPlayers = suspendOverworldPlayerTickets(overworld, server);
-        state.epoch = nextEpoch;
-        state.activeSeed = newSeed;
-        state.nextCycleEpochSeconds = now + config.cycleIntervalSeconds();
-        state.save(statePath);
+        cycleInProgress = true;
+        broadcastCycleState(server, true);
 
-        int originalSpawnChunkRadiusRule = disableSpawnChunkTickets(overworld, server);
-        int loadedBefore = overworld.getChunkSource().getLoadedChunksCount();
         try {
-            int unloadedChunksBeforeWipe = unloadUnprotectedLoadedChunks(overworld, protectedChunkRadius);
-            drainOverworldChunkTasks(overworld);
-            server.saveEverything(true, true, true);
-
-            RegionFileChunkResetter.ResetReport report = RegionFileChunkResetter.resetOverworldUnprotectedChunks(overworld, protectedChunkRadius);
-            int unloadedChunksAfterWipe = unloadUnprotectedLoadedChunks(overworld, protectedChunkRadius);
-            drainOverworldChunkTasks(overworld);
-            int loadedAfter = overworld.getChunkSource().getLoadedChunksCount();
-
-            ReGenVerse.LOGGER.info(
-                "ReGenVerse cycle {} triggered (manual={}) with seed {}. Unprotected chunk removal report: files={}, existingChunks={}, protectedChunks={}, removedChunks={}, unloadedBeforeWipe={}, unloadedAfterWipe={}, loadedBefore={}, loadedAfter={}",
-                nextEpoch,
-                manual,
-                newSeed,
-                report.regionFilesScanned(),
-                report.existingChunks(),
-                report.protectedChunks(),
-                report.removedChunks(),
-                unloadedChunksBeforeWipe,
-                unloadedChunksAfterWipe,
-                loadedBefore,
-                loadedAfter
-            );
-            ReGenVerse.LOGGER.info("Removed chunks regenerate on next load using the current world seed.");
-        } finally {
-            restoreSpawnChunkTickets(overworld, server, originalSpawnChunkRadiusRule);
-            if (!ticketSuspendedPlayers.isEmpty()) {
-                resumeOverworldPlayerTickets(overworld, ticketSuspendedPlayers);
+            evacuatePlayersToSpawn(server, overworld, nextEpoch);
+            PlayerList playerList = server.getPlayerList();
+            int originalViewDistance = playerList.getViewDistance();
+            int originalSimulationDistance = playerList.getSimulationDistance();
+            boolean distancesAdjusted = false;
+            if (server.getPlayerCount() > 0) {
+                if (originalViewDistance != CYCLE_VIEW_DISTANCE) {
+                    playerList.setViewDistance(CYCLE_VIEW_DISTANCE);
+                    distancesAdjusted = true;
+                }
+                if (originalSimulationDistance != CYCLE_SIMULATION_DISTANCE) {
+                    playerList.setSimulationDistance(CYCLE_SIMULATION_DISTANCE);
+                    distancesAdjusted = true;
+                }
+                if (distancesAdjusted) {
+                    ReGenVerse.LOGGER.info(
+                        "ReGenVerse cycle {} applied temporary distances: view {}->{} simulation {}->{}.",
+                        nextEpoch,
+                        originalViewDistance,
+                        playerList.getViewDistance(),
+                        originalSimulationDistance,
+                        playerList.getSimulationDistance()
+                    );
+                }
             }
-            if (distancesAdjusted) {
-                playerList.setViewDistance(originalViewDistance);
-                playerList.setSimulationDistance(originalSimulationDistance);
+
+            List<ServerPlayer> ticketSuspendedPlayers = suspendOverworldPlayerTickets(overworld, server);
+            state.epoch = nextEpoch;
+            state.activeSeed = newSeed;
+            state.nextCycleEpochSeconds = now + config.cycleIntervalSeconds();
+            state.save(statePath);
+
+            int originalSpawnChunkRadiusRule = disableSpawnChunkTickets(overworld, server);
+            int loadedBefore = overworld.getChunkSource().getLoadedChunksCount();
+            try {
+                int droppedItemsRemoved = clearUnprotectedDroppedItems(overworld, protectedChunkRadius);
+                int unloadedChunksBeforeWipe = unloadUnprotectedLoadedChunks(overworld, protectedChunkRadius);
+                drainOverworldChunkTasks(overworld);
+                server.saveEverything(true, true, true);
+
+                RegionFileChunkResetter.ResetReport report = RegionFileChunkResetter.resetOverworldUnprotectedChunks(overworld, protectedChunkRadius);
+                int unloadedChunksAfterWipe = unloadUnprotectedLoadedChunks(overworld, protectedChunkRadius);
+                drainOverworldChunkTasks(overworld);
+                int loadedAfter = overworld.getChunkSource().getLoadedChunksCount();
+
                 ReGenVerse.LOGGER.info(
-                    "ReGenVerse cycle {} restored server distances: view={} simulation={}.",
+                    "ReGenVerse cycle {} triggered (manual={}) with seed {}. Unprotected chunk removal report: files={}, existingChunks={}, protectedChunks={}, removedChunks={}, droppedItemsRemoved={}, unloadedBeforeWipe={}, unloadedAfterWipe={}, loadedBefore={}, loadedAfter={}",
                     nextEpoch,
-                    originalViewDistance,
-                    originalSimulationDistance
+                    manual,
+                    newSeed,
+                    report.regionFilesScanned(),
+                    report.existingChunks(),
+                    report.protectedChunks(),
+                    report.removedChunks(),
+                    droppedItemsRemoved,
+                    unloadedChunksBeforeWipe,
+                    unloadedChunksAfterWipe,
+                    loadedBefore,
+                    loadedAfter
                 );
+                ReGenVerse.LOGGER.info("Removed chunks regenerate on next load using the current world seed.");
+            } finally {
+                restoreSpawnChunkTickets(overworld, server, originalSpawnChunkRadiusRule);
+                if (!ticketSuspendedPlayers.isEmpty()) {
+                    resumeOverworldPlayerTickets(overworld, ticketSuspendedPlayers);
+                }
+                if (distancesAdjusted) {
+                    playerList.setViewDistance(originalViewDistance);
+                    playerList.setSimulationDistance(originalSimulationDistance);
+                    ReGenVerse.LOGGER.info(
+                        "ReGenVerse cycle {} restored server distances: view={} simulation={}.",
+                        nextEpoch,
+                        originalViewDistance,
+                        originalSimulationDistance
+                    );
+                }
+            }
+        } finally {
+            cycleInProgress = false;
+            broadcastCycleState(server, false);
+        }
+    }
+
+    private static void broadcastCycleState(MinecraftServer server, boolean active) {
+        CycleStatePayload payload = new CycleStatePayload(active);
+        for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+            if (ServerPlayNetworking.canSend(player, CycleStatePayload.TYPE)) {
+                ServerPlayNetworking.send(player, payload);
             }
         }
     }
@@ -343,6 +378,32 @@ public final class ReGenVerseManager {
             ReGenVerse.LOGGER.error("Failed to unload non-protected loaded chunks before cycle.", e);
             return 0;
         }
+    }
+
+    private static int clearUnprotectedDroppedItems(ServerLevel overworld, int protectedChunkRadius) {
+        int spawnChunkX = overworld.getSharedSpawnPos().getX() >> 4;
+        int spawnChunkZ = overworld.getSharedSpawnPos().getZ() >> 4;
+
+        List<ItemEntity> toDiscard = new ArrayList<>();
+        for (var entity : overworld.getAllEntities()) {
+            if (!(entity instanceof ItemEntity itemEntity) || itemEntity.isRemoved()) {
+                continue;
+            }
+
+            int chunkX = itemEntity.blockPosition().getX() >> 4;
+            int chunkZ = itemEntity.blockPosition().getZ() >> 4;
+            if (isProtectedChunk(chunkX, chunkZ, spawnChunkX, spawnChunkZ, protectedChunkRadius)) {
+                continue;
+            }
+
+            toDiscard.add(itemEntity);
+        }
+
+        for (ItemEntity itemEntity : toDiscard) {
+            itemEntity.discard();
+        }
+
+        return toDiscard.size();
     }
 
     private static void drainOverworldChunkTasks(ServerLevel overworld) {
