@@ -11,7 +11,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.players.PlayerList;
 import net.minecraft.core.BlockPos;
-import net.minecraft.world.entity.item.ItemEntity;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.GameRules;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.storage.LevelResource;
@@ -175,7 +175,7 @@ public final class ReGenVerseManager {
             int originalSpawnChunkRadiusRule = disableSpawnChunkTickets(overworld, server);
             int loadedBefore = overworld.getChunkSource().getLoadedChunksCount();
             try {
-                int droppedItemsRemoved = clearUnprotectedDroppedItems(overworld, protectedChunkRadius);
+                int nonPlayerEntitiesRemoved = clearUnprotectedNonPlayerEntities(overworld, protectedChunkRadius);
                 int unloadedChunksBeforeWipe = unloadUnprotectedLoadedChunks(overworld, protectedChunkRadius);
                 drainOverworldChunkTasks(overworld);
                 server.saveEverything(true, true, true);
@@ -186,7 +186,7 @@ public final class ReGenVerseManager {
                 int loadedAfter = overworld.getChunkSource().getLoadedChunksCount();
 
                 ReGenVerse.LOGGER.info(
-                    "ReGenVerse cycle {} triggered (manual={}) with seed {}. Unprotected chunk removal report: files={}, existingChunks={}, protectedChunks={}, removedChunks={}, droppedItemsRemoved={}, unloadedBeforeWipe={}, unloadedAfterWipe={}, loadedBefore={}, loadedAfter={}",
+                    "ReGenVerse cycle {} triggered (manual={}) with seed {}. Unprotected chunk removal report: files={}, existingChunks={}, protectedChunks={}, removedChunks={}, nonPlayerEntitiesRemoved={}, unloadedBeforeWipe={}, unloadedAfterWipe={}, loadedBefore={}, loadedAfter={}",
                     nextEpoch,
                     manual,
                     newSeed,
@@ -194,7 +194,7 @@ public final class ReGenVerseManager {
                     report.existingChunks(),
                     report.protectedChunks(),
                     report.removedChunks(),
-                    droppedItemsRemoved,
+                    nonPlayerEntitiesRemoved,
                     unloadedChunksBeforeWipe,
                     unloadedChunksAfterWipe,
                     loadedBefore,
@@ -380,27 +380,27 @@ public final class ReGenVerseManager {
         }
     }
 
-    private static int clearUnprotectedDroppedItems(ServerLevel overworld, int protectedChunkRadius) {
+    private static int clearUnprotectedNonPlayerEntities(ServerLevel overworld, int protectedChunkRadius) {
         int spawnChunkX = overworld.getSharedSpawnPos().getX() >> 4;
         int spawnChunkZ = overworld.getSharedSpawnPos().getZ() >> 4;
 
-        List<ItemEntity> toDiscard = new ArrayList<>();
-        for (var entity : overworld.getAllEntities()) {
-            if (!(entity instanceof ItemEntity itemEntity) || itemEntity.isRemoved()) {
+        List<Entity> toDiscard = new ArrayList<>();
+        for (Entity entity : overworld.getAllEntities()) {
+            if (entity instanceof ServerPlayer || entity.isRemoved()) {
                 continue;
             }
 
-            int chunkX = itemEntity.blockPosition().getX() >> 4;
-            int chunkZ = itemEntity.blockPosition().getZ() >> 4;
+            int chunkX = entity.blockPosition().getX() >> 4;
+            int chunkZ = entity.blockPosition().getZ() >> 4;
             if (isProtectedChunk(chunkX, chunkZ, spawnChunkX, spawnChunkZ, protectedChunkRadius)) {
                 continue;
             }
 
-            toDiscard.add(itemEntity);
+            toDiscard.add(entity);
         }
 
-        for (ItemEntity itemEntity : toDiscard) {
-            itemEntity.discard();
+        for (Entity entity : toDiscard) {
+            entity.discard();
         }
 
         return toDiscard.size();
